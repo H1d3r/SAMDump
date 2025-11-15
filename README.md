@@ -4,7 +4,7 @@ Extracts Windows SAM and SYSTEM files using Volume Shadow Copy Service (VSS) wit
 
 - Lists Volume Shadow Copies using VSS and creates one if necessary
 - Extracts SAM and SYSTEM files from the Shadow Copy
-- Uses NT API calls for file operations (*NtCreateFile*, *NtReadFile*, *NtWriteFile*,...)
+- Uses NT API calls for file operations (*NtCreateFile*, *NtReadFile*, *NtWriteFile*)
 - Supports XOR encoding for obfuscation
 - Exfiltration methods: Local save or Network transfer
 
@@ -136,4 +136,5 @@ The tool employs NT system calls instead of standard Windows API functions, whic
 - *NtWriteFile*: Used to save the files locally
 
 - It uses a custom *GetProcAddress* implementation to resolve function addresses using only *NtReadVirtualMemory*
+
 
