@@ -11,6 +11,9 @@ Extracts Windows SAM and SYSTEM files using Volume Shadow Copy Service (VSS) wit
 
 It requires to run as Administrator, and if created the Shadow Copy is automatically deleted after ~5 minutes. 
 
+It is available in C++, C# and Python implementations.
+
+If you are interested only in creating Shadow Copies through the VSS API you can check [w11_shadow_copies](https://github.com/ricardojoserf/w11_shadow_copies), a repo with stand-alone scripts for this.
 
 <br>
 
@@ -140,3 +143,4 @@ The tool employs NT system calls instead of standard Windows API functions, whic
 ## Acknowledgements
 
 Thanks to [@vx-underground](https://x.com/vxunderground) for identifying and suggesting optimizations in the Export Address Table (EAT) traversal code, replacing unnecessary `NtReadVirtualMemory` calls with direct pointer access.
+
